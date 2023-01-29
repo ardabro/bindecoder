@@ -1,0 +1,366 @@
+{
+    // All default values are predefined (and described) in config file (bindecoder.cfg). Here, we may redefine some of them:
+    "DEFAULTS":
+    {
+        "default_endian":"little",
+        "default_struct_field_placement":"aligned"
+    },
+
+
+    "TYPEDEFS":
+    {
+        "endian_test":      // endian_test.bin
+        {
+            "base":"struct",
+            "fields":
+            {
+                "uint64_le":    {"base":"uint", "size":8, "format":" {:016x}"},
+                "int64_le":     {"base":"int",  "size":8, "format":"{:+016x}"},
+                "uint32_le":    {"base":"uint", "size":4, "format": " {:08x}"},
+                "int32_le":     {"base":"int",  "size":4, "format": "{:+08x}"},
+                "uint16_le":    {"base":"uint", "size":2, "format": " {:04x}"},
+                "int16_le":     {"base":"int",  "size":2, "format": "{:+04x}"},
+                "float32_le":   {"base":"float","size":4, "format": " {:.7f}"},
+                "float64_le":   {"base":"float","size":8, "format":" {:.15f}"},
+                "time32_le":    {"base":"ts",   "size":4, "format":" %Y-%m-%d %H:%M:%S"},
+                "ftime_le":     {"base":"fts",  "size":8, "format":" %Y-%m-%d %H:%M:%S.%f"},
+
+                "uint64_be":    {"base":"uint", "size":8, "format":" {:016x}"},
+                "int64_be":     {"base":"int",  "size":8, "format":"{:+016x}"},
+                "uint32_be":    {"base":"uint", "size":4, "format": " {:08x}"},
+                "int32_be":     {"base":"int",  "size":4, "format": "{:+08x}"},
+                "uint16_be":    {"base":"uint", "size":2, "format": " {:04x}"},
+                "int16_be":     {"base":"int",  "size":2, "format": "{:+04x}"},
+                "float32_be":   {"base":"float","size":4, "format": " {:.7f}"},
+                "float64_be":   {"base":"float","size":8, "format":" {:.15f}"},
+                "time32_be":    {"base":"ts",   "size":4, "format":" %Y-%m-%d %H:%M:%S"},
+                "ftime_be":     {"base":"fts",  "size":8, "format":" %Y-%m-%d %H:%M:%S.%f"}
+            }
+        },
+
+        // header_and_points.bin; a short header containing number of records and list  of records (x,y ints) terminated with short string
+        "header_and_points":
+        {
+            "base":"struct",
+            "fields":
+            {
+                "eyecatcher":    {"base":"char", "size":10},
+                "num_of_points": {"base":"uint", "size":4, "format":"{:d}"},
+                "points":
+                {
+                    "base":"struct",
+                    //"placement":"oneline",
+                    "count":"num_of_points",
+                    "fields":
+                    {
+                        "x": {"base":"uint", "size":2, "format":"0x{:04x}"},
+                        "y": {"base":"uint", "size":2, "format":"0x{:04x}"}
+                    }
+                },
+                "footer": {"base":"char", "size":6}
+            }
+        },
+
+        // list_of_lists.bin; a list with a number of simple byte lists of various lengths; terminated with short string
+        "list_of_lists":
+        {
+            "base":"struct",
+            "fields":
+            {
+                "num_of_lists": {"base":"uint", "size":2, "format":"{:d}"},
+                "lists":
+                {
+                    "base":"struct",
+                    "count":"num_of_lists",
+                    "placement":"oneline",
+                    "fields":
+                    {
+                        "length":{"base":"uint", "size":1, "format":"{:02d}"},
+                        "eyecatcher":{"base":"char", "size":5},
+                        "checksum":{"base":"uint", "size":2, "format":"0x{:02x}"},
+                        "timestamp":{"base":"ts", "size":4, "format":"%Y-%m-%d %H:%M:%S"},
+                        "data":{"base":"uint", "size":1, "count":"length", "wrap_at":6, "format":"{:02x}", "separator":" "}
+                    }
+                },
+                "footer": {"base":"char", "size":6}
+            }
+        },
+
+
+        "_varint":
+        {
+            "base":"union",
+            "variants":
+            {
+                "VINT8":
+                {
+                    "prefetch_size":1,
+
+                    "data_offset":0,            // offset of the data from the beginning of the field; allows skipping prefetched
+                                                // bytes if necessary
+                    "total_size":null,          // total size including prefetch; may add some tail, unused data th the end
+                                                // if there is a count (an array of fields) the total size embraces all of them
+                    "trigger":"RAW[0]<0xFD",    // a python boolean expression that triggers this variant;
+                                                // RAW is an array of prefetched bytes
+
+                    // and normal data type fields for the field appearing as this variant:
+                    "base":"uint",
+                    "size":1,
+                    "format":"{:02x}"
+                },
+                "VINT16":
+                {
+                    "prefetch_size":1,
+                    "data_offset":1,                // skip 1st byte (0xFD)
+                    "trigger":"RAW[0]==0xFD",
+                    "base":"uint",
+                    "size":2,
+                    "format":"{:04x}"
+                },
+                "VINT32":
+                {
+                    "prefetch_size":1,
+                    "data_offset":1,                // skip 1st byte (0xFE)
+                    "trigger":"RAW[0]==0xFE",
+                    "base":"uint",
+                    "size":4,
+                    "format":"{:08x}"
+                },
+                "VINT64":
+                {
+                    "prefetch_size":1,              // may be skipped in last element if trigger is skipped
+                    "data_offset":1,                // skip 1st byte (0xFF)
+                    "trigger":"RAW[0]==0xFF",       // trigger is optional for the last element; it will always trigger if skipped
+                    "base":"uint",
+                    "size":8,
+                    "format":"{:016x}"
+                }
+            }
+        },
+
+
+        // var_integers.bin; a set of variable integers from BTC blockchain specification; byteorder is little-endian
+        // 1-byte if smaller than 0xfd
+        // 0xFD + 2-byte integer
+        // 0xFE + 4-byte integer
+        // 0xFF + 8-byte integer
+        "var_integers":
+        {
+            "base":"struct",
+            "fields":
+            {
+                "num_of_values":{"base":"uint", "size":1, "format":"{:d}"},
+                "values":
+                {
+                    "base":"_varint",
+                    "count":"num_of_values"
+                },
+                "footer": {"base":"char", "size":6}
+            }
+        },
+
+        // var_integers.bin; a set of variable integers from BTC blockchain specification; byteorder is little-endian
+        // 1-byte if smaller than 0xfd
+        // 0xFD + 2-byte integer
+        // 0xFE + 4-byte integer
+        // 0xFF + 8-byte integer
+        "var_integers_with_extended_sizes":     // total_size added to VINT8,16,32 so extra bytes need to be skipped
+        {
+            "base":"struct",
+            "fields":
+            {
+                "num_of_values":{"base":"uint", "size":1, "format":"{:d}"},
+                "values":
+                {
+                    "base":"union",
+                    "count":"num_of_values",
+                    "variants":
+                    {
+                        "VINT8":
+                        {
+                            "prefetch_size":1,
+
+                            "data_offset":0,            // offset of the data from the beginning of the field; allows skipping prefetched
+                                                        // bytes if necessary
+                            "total_size":4,             // total size including prefetch; may add some tail, unused data th the end
+                                                        // if there is a count (an array of fields) the total size embraces all of them
+                            "trigger":"RAW[0]<0xFD",    // a python boolean expression that triggers this variant;
+                                                        // RAW is an array of prefetched bytes
+
+                            // and normal data type fields for the field appearing as this variant:
+                            "base":"uint",
+                            "size":1,
+                            "format":"{:02x}"
+                        },
+                        "VINT16":
+                        {
+                            "prefetch_size":1,
+                            "data_offset":1,                // skip 1st byte (0xFD)
+                            "trigger":"RAW[0]==0xFD",
+                            "base":"uint",
+                            "total_size":4,
+                            "size":2,
+                            "format":"{:04x}"
+                        },
+                        "VINT32":
+                        {
+                            "prefetch_size":1,
+                            "data_offset":1,                // skip 1st byte (0xFE)
+                            "trigger":"RAW[0]==0xFE",
+                            "base":"uint",
+                            "total_size":8,
+                            "size":4,
+                            "format":"{:08x}"
+                        },
+                        "VINT64":
+                        {
+                            "prefetch_size":1,              // may be skipped in last element if trigger is skipped
+                            "data_offset":1,                // skip 1st byte (0xFF)
+                            "trigger":"RAW[0]==0xFF",       // trigger is optional for the last element; it will always trigger if skipped
+                            "base":"uint",
+                            "size":8,
+                            "format":"{:016x}"
+                        }
+                    }
+                },
+                "footer": {"base":"char", "size":6}
+            }
+        },
+
+
+        "_xy":
+        {
+            "base":"struct",
+            "fields":
+            {
+                "x":{"base":"uint", "size":1, "format":"{:02x}"},
+                "y":{"base":"x"}
+            }
+        },
+
+
+        "_xyz":
+        {
+            "base":"_xy",
+            "fields":
+            {
+                "z":{"base":"y"}
+            }
+        },
+
+        "_two_points":
+        {
+            "base":"struct",
+            "fields":
+            {
+                "point_2d":{"base":"_xy"},
+                "point_3d":{"base":"_xyz"}
+            }
+        },
+
+
+        "struct_in_struct":
+        {
+            "base":"struct",
+            "fields":
+            {
+                "header":{"base":"char", "size":6},
+                "points":{"base":"_two_points"},
+                "footer":{"base":"char", "size":6}
+            }
+        },
+
+
+        "_chameleon_union":
+        {
+            "base":"union",
+            "variants":
+            {
+                "XY":
+                {
+                    "prefetch_size":1,
+                    "data_offset":1,
+                    "trigger":"RAW[0]==0",
+                    "total_size":10,
+                    "base":"_xy"
+                },
+
+                "XYZ":
+                {
+                    "prefetch_size":1,
+                    "data_offset":1,
+                    "trigger":"RAW[0]==1",
+                    "total_size":11,
+                    "base":"_xyz"
+                },
+
+                "INT_ARR":
+                {
+                    "prefetch_size":1,
+                    "data_offset":1,
+                    "trigger":"RAW[0]==2",
+                    "total_size":12,
+                    "base":"int",
+                    "size":2,
+                    "format":"{:+05d};",
+                    "count":3
+                },
+
+                "LAST":
+                {
+                    "prefetch_size":1,
+                    "data_offset":1,
+                    "base":"char",
+                    "size":10,
+                    "stop_on_zero":true
+                }
+            }
+        },
+
+
+        "union_in_union_nightmare":
+        {
+            "base":"struct",
+            "fields":
+            {
+                "num_of_values":{"base":"uint", "size":1, "format":"{:d}"},
+                "values":
+                {
+                    "base":"union",
+                    "count":"num_of_values",
+                    "variants":
+                    {
+                        "CHAMELEON":
+                        {
+                            "prefetch_size":1,
+                            "data_offset":1,
+                            "trigger":"RAW[0]==0",
+                            "total_size":13,                // the max total size for chameleon variant + prefetch size
+                            "base":"_chameleon_union"
+                        },
+
+                        "VARINT3":
+                        {
+                            "prefetch_size":1,
+                            "data_offset":1,
+                            "trigger":"RAW[0]==1",
+                            "total_size":20,                // total size PER ELEMENT (== the largest varint)
+                            "count":3,
+                            "base":"_varint"
+                        },
+
+                        "STRING":
+                        {
+                            "prefetch_size":1,
+                            "data_offset":1,
+                            "base":"char",
+                            "size":10,
+                            "stop_on_zero":true
+                        }
+                    }
+                },
+                "footer": {"base":"char", "size":6}
+            }
+        }
+    }
+ }
