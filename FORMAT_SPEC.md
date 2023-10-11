@@ -73,7 +73,7 @@ A record is a simple `x,y,z` structure and the number of records is specified by
 
 The value of each **unsigned integer** field met by the data file processor is put into common global dictionary serving as a source for back references. The dictionary is flat, so if more than one structure has a field with the same name, they will be interfering - the newer value overwrites the existing one in the dictionary.
 
-A richer data format file may define a set of data structures. Some of them may then embedded in the others, and any top-level one may be chosen to serve as root for data file structure. There is a `--struct` (`-st`)parameter selecting root structure. This means than one data format file may define a multiple binary file structures, and it is a good idea to do so if we need to handle a family of related files with partially common structures.
+A richer data format file may define a set of data structures. Some of them may be then embedded in the others, and any top-level one may be chosen to serve as root for data file structure. There is a `--struct` (`-st`) parameter selecting root structure. This means than one data format file may define a multiple binary file structures, and it is a good idea to do so if we need to handle a family of related files with partially common structures.
 
 An example:
 
@@ -215,7 +215,7 @@ Structure is a set of fields appearing in strict order (like in every civilized 
 
 - **fields** - a dictionary specifying structure fields; this key is not obligatory; if doesn't appear the structure simply inherits all fields from its base. In particular a structure based on fundamental **struct** with no fields defined is empty - this is correct; if **fields** key appears in the definition then **base** is not obligatory and defaults to **struct**; if structure is based on other, non-empty structure, then it simply appends its fields to the fields list inherited from base.
 
-- **alignment** - this parameter specifies how ordinary fields of the structure will be presented:****
+- **placement** - this parameter specifies how ordinary fields of the structure will be presented:****
 
   - **normal** - in separate lines without any additional formatting; fields names are aligned to the left, values are not
 
